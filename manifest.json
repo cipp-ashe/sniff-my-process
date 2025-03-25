@@ -3,7 +3,14 @@
   "name": "Workflow Tracker",
   "version": "1.0",
   "description": "Tracks user interactions and network requests to map application workflows",
-  "permissions": ["webRequest", "activeTab", "downloads", "storage"],
+  "permissions": [
+    "webRequest",
+    "activeTab",
+    "downloads",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "popup.html"
   },

@@ -1,5 +1,5 @@
 // Service worker for handling background tasks
-console.log("Background script loaded");
+console.log("Background script loaded - v2");
 
 // Initialize tracking state
 let isTracking = false;
@@ -8,6 +8,7 @@ let isTracking = false;
 chrome.storage.local.get(["isTracking"], function (result) {
   console.log("Loaded tracking state from storage:", result);
   isTracking = result.isTracking || false;
+  console.log("Tracking state initialized to:", isTracking);
 });
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -15,6 +16,7 @@ chrome.runtime.onInstalled.addListener(() => {
   // Initialize storage with default values
   chrome.storage.local.set({ isTracking: false }, function () {
     console.log("Initialized tracking state in storage");
+    console.log("Clearing any existing workflowData");
   });
 });
 
@@ -59,6 +61,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     isTracking = message.isTracking;
     console.log("Updated tracking state:", isTracking);
 
+    // This is important for SPA navigation - ensures all tabs get the same tracking state
     // Save to storage
     chrome.storage.local.set({ isTracking: isTracking }, function () {
       console.log("Saved tracking state to storage");
@@ -92,6 +95,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "complete") {
     console.log("Tab updated:", tabId);
 
+    // This ensures that when a new tab loads or an SPA navigates, tracking state is maintained
     // If tracking is active, tell the new tab to start tracking
     if (isTracking) {
       setTimeout(() => {

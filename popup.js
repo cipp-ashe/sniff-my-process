@@ -1,18 +1,40 @@
-console.log("Popup script loaded");
+console.log("Popup script loaded - v2");
 
 // Initialize tracking state from storage
 let isTracking = false;
+let workflowDataStats = { interactions: 0, networkRequests: 0 };
 
 // Function to update UI based on tracking state
-function updateUI(tracking) {
-  console.log("Updating UI, tracking state:", tracking);
+function updateUI(tracking, stats, sessionId, lastActivity) {
+  console.log(
+    "Updating UI, tracking state:",
+    tracking,
+    "sessionId:",
+    sessionId,
+    "lastActivity:",
+    lastActivity
+  );
   document.getElementById("startTracking").disabled = tracking;
   document.getElementById("stopTracking").disabled = !tracking;
   document.getElementById("downloadData").disabled =
     !tracking && !document.getElementById("downloadData").disabled;
-  document.getElementById("status").textContent = tracking
-    ? "Tracking..."
+
+  let statusText = tracking
+    ? `Tracking... (${stats.interactions} interactions, ${stats.networkRequests} requests)`
     : "Not tracking";
+
+  // Add session ID if available
+  if (tracking && sessionId) {
+    statusText += `\nSession: ${sessionId}`;
+  }
+
+  // Add last activity timestamp if available
+  if (tracking && lastActivity) {
+    const activityTime = new Date(lastActivity).toLocaleTimeString();
+    statusText += `\nLast activity: ${activityTime}`;
+  }
+
+  document.getElementById("status").textContent = statusText;
 
   // Add a visible alert for debugging
   if (tracking) {
@@ -22,13 +44,69 @@ function updateUI(tracking) {
     document.getElementById("status").style.color = "#666";
     document.getElementById("status").style.fontWeight = "normal";
   }
+
+  // Make status a multi-line element
+  document.getElementById("status").style.whiteSpace = "pre-line";
+}
+
+// Function to get the last activity timestamp from workflowData
+function getLastActivityTimestamp(workflowData) {
+  if (!workflowData) return null;
+
+  let lastTimestamp = null;
+
+  // Check interactions
+  if (workflowData.interactions && workflowData.interactions.length > 0) {
+    const lastInteraction =
+      workflowData.interactions[workflowData.interactions.length - 1];
+    lastTimestamp = lastInteraction.timestamp;
+  }
+
+  // Check network requests
+  if (workflowData.networkRequests && workflowData.networkRequests.length > 0) {
+    const lastRequest =
+      workflowData.networkRequests[workflowData.networkRequests.length - 1];
+    const requestTimestamp = lastRequest.timestamp;
+
+    // Update if this is more recent than the interaction timestamp
+    if (
+      !lastTimestamp ||
+      new Date(requestTimestamp) > new Date(lastTimestamp)
+    ) {
+      lastTimestamp = requestTimestamp;
+    }
+  }
+
+  return lastTimestamp;
 }
 
 // Load tracking state when popup opens
-chrome.storage.local.get(["isTracking"], function (result) {
+chrome.storage.local.get(["isTracking", "workflowData"], function (result) {
   console.log("Loaded tracking state from storage:", result);
   isTracking = result.isTracking || false;
-  updateUI(isTracking);
+  let sessionId = null;
+  let lastActivity = null;
+
+  // Calculate stats if workflowData exists
+  if (result.workflowData) {
+    workflowDataStats = {
+      interactions: result.workflowData.interactions?.length || 0,
+      networkRequests: result.workflowData.networkRequests?.length || 0,
+    };
+    sessionId = result.workflowData.sessionId;
+    lastActivity = getLastActivityTimestamp(result.workflowData);
+    console.log(
+      "Loaded workflowData stats:",
+      workflowDataStats,
+      "sessionId:",
+      sessionId,
+      "lastActivity:",
+      lastActivity
+    );
+  }
+
+  // Update UI with tracking state, stats, and session ID
+  updateUI(isTracking, workflowDataStats, sessionId, lastActivity);
 });
 
 document.getElementById("startTracking").addEventListener("click", async () => {
@@ -40,23 +118,40 @@ document.getElementById("startTracking").addEventListener("click", async () => {
     console.log("Saved tracking state to storage");
   });
 
-  updateUI(true);
-
+  // Combine chrome.tabs.query calls for efficiency
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    console.log("Sending startTracking message to tab:", tabs[0].id);
-    chrome.tabs.sendMessage(
-      tabs[0].id,
-      { action: "startTracking" },
-      (response) => {
-        // Log any error that might occur during message sending
-        if (chrome.runtime.lastError) {
-          console.error("Error sending message:", chrome.runtime.lastError);
-          alert("Error: " + chrome.runtime.lastError.message);
-        } else {
-          console.log("Message sent successfully", response);
-        }
+    const tabId = tabs[0].id;
+    console.log("Sending startTracking message to tab:", tabId);
+
+    // First send the startTracking message
+    chrome.tabs.sendMessage(tabId, { action: "startTracking" }, (response) => {
+      // Log any error that might occur during message sending
+      if (chrome.runtime.lastError) {
+        console.error("Error sending message:", chrome.runtime.lastError);
+        alert("Error: " + chrome.runtime.lastError.message);
+      } else {
+        console.log("Message sent successfully", response);
+
+        // Wait a bit for the content script to initialize the new session
+        setTimeout(() => {
+          chrome.storage.local.get(["workflowData"], function (result) {
+            if (result.workflowData) {
+              const sessionId = result.workflowData.sessionId;
+              const lastActivity = getLastActivityTimestamp(
+                result.workflowData
+              );
+              console.log(
+                "Got new sessionId after starting tracking:",
+                sessionId
+              );
+              updateUI(true, workflowDataStats, sessionId, lastActivity);
+            } else {
+              updateUI(true, workflowDataStats, null, null);
+            }
+          });
+        }, 500);
       }
-    );
+    });
   });
 });
 
@@ -69,7 +164,7 @@ document.getElementById("stopTracking").addEventListener("click", () => {
     console.log("Saved tracking state to storage");
   });
 
-  updateUI(false);
+  updateUI(false, workflowDataStats, null, null);
 
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     console.log("Sending stopTracking message to tab:", tabs[0].id);
@@ -91,6 +186,31 @@ document.getElementById("stopTracking").addEventListener("click", () => {
 document.getElementById("downloadData").addEventListener("click", () => {
   console.log("Download data button clicked");
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    // Get current stats before downloading
+    chrome.storage.local.get(["workflowData"], function (result) {
+      if (result.workflowData) {
+        workflowDataStats = {
+          interactions: result.workflowData.interactions?.length || 0,
+          networkRequests: result.workflowData.networkRequests?.length || 0,
+        };
+        const lastActivity = getLastActivityTimestamp(result.workflowData);
+        console.log(
+          "Updated workflowData stats before download:",
+          workflowDataStats,
+          "lastActivity:",
+          lastActivity
+        );
+
+        // Update UI with latest stats
+        updateUI(
+          isTracking,
+          workflowDataStats,
+          result.workflowData.sessionId,
+          lastActivity
+        );
+      }
+    });
+
     console.log("Sending downloadData message to tab:", tabs[0].id);
     chrome.tabs.sendMessage(
       tabs[0].id,
@@ -107,6 +227,40 @@ document.getElementById("downloadData").addEventListener("click", () => {
   });
 });
 
+// Add a clear data button
+const clearDataButton = document.createElement("button");
+clearDataButton.textContent = "Clear Tracking Data";
+clearDataButton.style.marginTop = "10px";
+clearDataButton.style.width = "100%";
+clearDataButton.style.padding = "5px";
+clearDataButton.onclick = function () {
+  // Generate a new session ID for the cleared data
+  const newSessionId =
+    Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+  const timestamp = new Date().toISOString();
+
+  chrome.storage.local.set(
+    {
+      workflowData: {
+        interactions: [],
+        networkRequests: [],
+        timestamp: timestamp,
+        sessionId: newSessionId,
+      },
+    },
+    function () {
+      alert("Tracking data cleared!");
+      workflowDataStats = { interactions: 0, networkRequests: 0 };
+      updateUI(
+        isTracking,
+        workflowDataStats,
+        isTracking ? newSessionId : null,
+        isTracking ? timestamp : null
+      );
+    }
+  );
+};
 // Add a debug button to show console logs directly in the popup
 const debugDiv = document.createElement("div");
 debugDiv.style.marginTop = "10px";
@@ -166,6 +320,7 @@ debugButton.onclick = function () {
 };
 document.body.appendChild(debugButton);
 
+document.body.appendChild(clearDataButton);
 // Check if the popup is connected to a tab
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
   if (tabs.length === 0) {
