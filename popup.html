@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Workflow Tracker</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 10px;
+      font-family: system-ui;
+    }
+    button {
+      width: 100%;
+      padding: 8px;
+      margin: 5px 0;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #ccc;
+    }
+    #status {
+      margin-top: 10px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <button id="startTracking">Start Tracking</button>
+  <button id="stopTracking" disabled>Stop Tracking</button>
+  <button id="downloadData" disabled>Download Data</button>
+  <div id="status">Not tracking</div>
+  <script src="popup.js"></script>
+</body>
+</html>
