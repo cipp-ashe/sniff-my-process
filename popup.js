@@ -174,27 +174,65 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     document.getElementById("startTracking").disabled = true;
   } else {
     console.log("Connected to tab:", tabs[0].id);
-    // Try to ping the content script to see if it's loaded
-    chrome.tabs.sendMessage(tabs[0].id, { action: "ping" }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.warn(
-          "Content script may not be loaded:",
-          chrome.runtime.lastError
-        );
-        document.getElementById("status").textContent =
-          "Warning: Content script may not be loaded";
 
-        // Add a more visible error message
-        const errorMsg = document.createElement("div");
-        errorMsg.textContent =
-          "Content script not loaded. Try reloading the page.";
-        errorMsg.style.color = "red";
-        errorMsg.style.fontWeight = "bold";
-        errorMsg.style.marginTop = "10px";
-        document.body.insertBefore(errorMsg, debugButton);
-      } else {
-        console.log("Content script is loaded and responding");
+    // First check with the background script if it knows the content script is loaded
+    chrome.runtime.sendMessage(
+      {
+        action: "checkContentScriptLoaded",
+        tabId: tabs[0].id,
+      },
+      (response) => {
+        if (response && response.isLoaded) {
+          console.log("Background confirms content script is loaded");
+          // Content script is loaded according to background, we're good to go
+        } else {
+          console.log(
+            "Background doesn't know if content script is loaded, trying direct ping"
+          );
+          // Try to ping the content script directly as a fallback
+          chrome.tabs.sendMessage(
+            tabs[0].id,
+            { action: "ping" },
+            (response) => {
+              if (chrome.runtime.lastError) {
+                console.warn(
+                  "Content script may not be loaded:",
+                  chrome.runtime.lastError
+                );
+                document.getElementById("status").textContent =
+                  "Warning: Content script may not be loaded";
+
+                // Add a more visible error message
+                const errorMsg = document.createElement("div");
+                errorMsg.textContent =
+                  "Content script not loaded. Try reloading the page.";
+                errorMsg.style.color = "red";
+                errorMsg.style.fontWeight = "bold";
+                errorMsg.style.marginTop = "10px";
+                document.body.insertBefore(errorMsg, debugButton);
+
+                // Add a reload button
+                const reloadButton = document.createElement("button");
+                reloadButton.textContent = "Reload Page";
+                reloadButton.style.marginTop = "10px";
+                reloadButton.style.width = "100%";
+                reloadButton.style.padding = "5px";
+                reloadButton.style.backgroundColor = "#f44336";
+                reloadButton.style.color = "white";
+                reloadButton.style.border = "none";
+                reloadButton.style.borderRadius = "4px";
+                reloadButton.onclick = function () {
+                  chrome.tabs.reload(tabs[0].id);
+                  window.close(); // Close the popup
+                };
+                document.body.insertBefore(reloadButton, debugButton);
+              } else {
+                console.log("Content script is loaded and responding");
+              }
+            }
+          );
+        }
       }
-    });
+    );
   }
 });

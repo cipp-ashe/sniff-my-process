@@ -18,9 +18,32 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+// Keep track of tabs with content scripts loaded
+const loadedTabs = new Set();
+
 // Listen for messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("Background received message:", message, "from:", sender);
+
+  if (message.action === "contentScriptLoaded") {
+    console.log("Content script loaded in tab:", sender.tab?.id, message.tabId);
+    if (sender.tab?.id) {
+      loadedTabs.add(sender.tab.id);
+    }
+    sendResponse({ status: "acknowledged" });
+  }
+
+  if (message.action === "checkContentScriptLoaded") {
+    const tabId = message.tabId;
+    const isLoaded = loadedTabs.has(tabId);
+    console.log(
+      "Checking if content script is loaded in tab:",
+      tabId,
+      "Result:",
+      isLoaded
+    );
+    sendResponse({ isLoaded });
+  }
 
   if (message.action === "logError") {
     console.error("Error from content script:", message.error);

@@ -1,4 +1,14 @@
-console.log("Content script loaded");
+console.log("Content script loaded and initialized");
+
+// Immediately notify the background script that we're loaded
+try {
+  chrome.runtime.sendMessage({
+    action: "contentScriptLoaded",
+    tabId: window.location.href,
+  });
+} catch (e) {
+  console.error("Failed to notify background script:", e);
+}
 
 let workflowData = {
   interactions: [],
