@@ -150,7 +150,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     switch (request.action) {
       case "ping":
         console.log("Received ping, sending response");
-        sendResponse({ status: "ok" });
+        sendResponse({ status: "ok", message: "Content script is active" });
         break;
       case "startTracking":
         console.log("Starting tracking...");

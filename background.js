@@ -1,16 +1,63 @@
 // Service worker for handling background tasks
 console.log("Background script loaded");
 
-chrome.runtime.onInstalled.addListener(() => {
-  console.log("Workflow Tracker installed");
+// Initialize tracking state
+let isTracking = false;
+
+// Load tracking state when background script starts
+chrome.storage.local.get(["isTracking"], function (result) {
+  console.log("Loaded tracking state from storage:", result);
+  isTracking = result.isTracking || false;
 });
 
-// Listen for errors
+chrome.runtime.onInstalled.addListener(() => {
+  console.log("Workflow Tracker installed");
+  // Initialize storage with default values
+  chrome.storage.local.set({ isTracking: false }, function () {
+    console.log("Initialized tracking state in storage");
+  });
+});
+
+// Listen for messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log("Background received message:", message);
+  console.log("Background received message:", message, "from:", sender);
 
   if (message.action === "logError") {
     console.error("Error from content script:", message.error);
+  }
+
+  // Handle tracking state changes
+  if (message.action === "getTrackingState") {
+    console.log("Sending tracking state:", isTracking);
+    sendResponse({ isTracking: isTracking });
+  }
+
+  if (message.action === "setTrackingState") {
+    isTracking = message.isTracking;
+    console.log("Updated tracking state:", isTracking);
+
+    // Save to storage
+    chrome.storage.local.set({ isTracking: isTracking }, function () {
+      console.log("Saved tracking state to storage");
+    });
+
+    // Broadcast to all tabs
+    chrome.tabs.query({}, function (tabs) {
+      for (let tab of tabs) {
+        try {
+          chrome.tabs
+            .sendMessage(tab.id, {
+              action: isTracking ? "startTracking" : "stopTracking",
+              fromBackground: true,
+            })
+            .catch((err) => console.log("Error sending to tab", tab.id, err));
+        } catch (e) {
+          console.error("Error broadcasting to tab", tab.id, e);
+        }
+      }
+    });
+
+    sendResponse({ success: true });
   }
 
   // Return true to indicate we'll respond asynchronously
@@ -20,7 +67,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Add listener for content script connection issues
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === "complete") {
-    console.log("Tab updated, checking content script:", tabId);
-    // We could ping the content script here if needed
+    console.log("Tab updated:", tabId);
+
+    // If tracking is active, tell the new tab to start tracking
+    if (isTracking) {
+      setTimeout(() => {
+        try {
+          chrome.tabs
+            .sendMessage(tabId, {
+              action: "startTracking",
+              fromBackground: true,
+            })
+            .catch((err) =>
+              console.log("Error sending to new tab", tabId, err)
+            );
+        } catch (e) {
+          console.error("Error sending to new tab", tabId, e);
+        }
+      }, 1000); // Give the content script time to initialize
+    }
   }
 });
